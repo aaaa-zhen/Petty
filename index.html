@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小题大做测量器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-fadeIn {
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        .duration-1500 {
+            transition-duration: 1.5s;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // AlertCircle 图标组件
+        const AlertCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        const PettinessMeter = () => {
+            const [grievance, setGrievance] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [result, setResult] = useState(null);
+            const [error, setError] = useState('');
+            const [displayScore, setDisplayScore] = useState(0);
+
+            // 内置的 API 配置
+            const API_URL = 'https://aihubmix.com/v1/messages';
+            const API_KEY = 'sk-iouRBg8zeN5xCP8Z01935eD4EdE44a15A466Bb211a58E544';
+
+            const exampleGrievances = [
+                { label: "呼吸声", text: "我室友呼吸声太大了" },
+                { label: "开门礼貌", text: "我帮别人开门他们都不说谢谢" },
+                { label: "微波鱼", text: "我同事总是用微波炉热鱼" },
+                { label: "卫生纸", text: "他们把卫生纸装反了" }
+            ];
+
+            const categories = [
+                "合理担忧",
+                "正当抱怨", 
+                "开始小题大做",
+                "相当小题大做",
+                "小题大做巅峰"
+            ];
+
+            // 调用 Anthropic API 分析抱怨
+            const analyzeGrievance = async () => {
+                if (!grievance.trim()) {
+                    setError('请输入您的抱怨内容！');
+                    return;
+                }
+
+                setLoading(true);
+                setError('');
+
+                try {
+                    const prompt = `请分析以下抱怨的"小题大做"程度，并给出0-100的分数以及建议。
+
+抱怨内容："${grievance}"
+
+请以JSON格式返回结果，包含以下字段：
+- score: 0-100的整数分数（0表示完全合理，100表示极度小题大做）
+- category: 根据分数选择类别（0-20:"合理担忧", 21-40:"正当抱怨", 41-60:"开始小题大做", 61-80:"相当小题大做", 81-100:"小题大做巅峰"）
+- judgment: 对这个抱怨的客观评价（30-50字）
+- advice: 给出的建议（30-50字）
+
+只返回JSON，不要其他内容。`;
+
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': API_KEY,
+                            'anthropic-version': '2023-06-01'
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-20250514',
+                            max_tokens: 300,
+                            messages: [{
+                                role: 'user',
+                                content: prompt
+                            }]
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error?.message || `API 调用失败: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const content = data.content[0].text;
+                    
+                    // 尝试解析JSON响应
+                    let analysisResult;
+                    try {
+                        analysisResult = JSON.parse(content);
+                    } catch (parseError) {
+                        // 如果直接解析失败，尝试提取JSON部分
+                        const jsonMatch = content.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            analysisResult = JSON.parse(jsonMatch[0]);
+                        } else {
+                            throw new Error('无法解析AI返回的分析结果');
+                        }
+                    }
+
+                    // 验证返回的数据结构
+                    if (!analysisResult.score || !analysisResult.category || !analysisResult.judgment || !analysisResult.advice) {
+                        throw new Error('AI返回的数据格式不完整');
+                    }
+
+                    setResult(analysisResult);
+                    animateScore(analysisResult.score);
+
+                } catch (err) {
+                    console.error('API 调用错误:', err);
+                    setError(`分析失败: ${err.message}`);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const animateScore = (targetScore) => {
+                const duration = 1500;
+                const startTime = Date.now();
+                const startScore = 0;
+
+                const updateScore = () => {
+                    const now = Date.now();
+                    const progress = Math.min((now - startTime) / duration, 1);
+                    
+                    const easeOut = 1 - Math.pow(1 - progress, 3);
+                    const currentScore = Math.round(startScore + (targetScore - startScore) * easeOut);
+                    
+                    setDisplayScore(currentScore);
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(updateScore);
+                    }
+                };
+                
+                requestAnimationFrame(updateScore);
+            };
+
+            const getGaugeFillDasharray = (score) => {
+                const arcLength = 220;
+                const fillLength = (score / 100) * arcLength;
+                return `${fillLength} ${arcLength}`;
+            };
+
+            return (
+                <div className="min-h-screen p-8" style={{ backgroundColor: '#F4BE72' }}>
+                    <div className="max-w-2xl mx-auto">
+                        <h1 className="text-5xl font-bold text-center mb-2" style={{ color: '#45260C' }}>
+                            你有多小题大做？
+                        </h1>
+                        <p className="text-center mb-8" style={{ color: '#45260C' }}>
+                            分享你的抱怨，让真正的AI来评判
+                        </p>
+
+                        <div className="bg-white rounded-2xl shadow-xl p-8">
+                            {/* 仪表盘 */}
+                            <div className="flex flex-col items-center mb-8">
+                                <div className="relative w-80 h-48 mb-4">
+                                    <svg viewBox="0 0 200 130" className="w-full h-full">
+                                        <path
+                                            d="M 30 100 A 70 70 0 0 1 170 100"
+                                            fill="none"
+                                            stroke="#E5E7EB"
+                                            strokeWidth="20"
+                                            strokeLinecap="round"
+                                        />
+                                        
+                                        <path
+                                            d="M 30 100 A 70 70 0 0 1 170 100"
+                                            fill="none"
+                                            stroke="#E68600"
+                                            strokeWidth="20"
+                                            strokeLinecap="round"
+                                            strokeDasharray={getGaugeFillDasharray(displayScore)}
+                                            style={{ transition: 'all 1.5s ease-out' }}
+                                        />
+                                        
+                                        <text x="28" y="125" textAnchor="middle" className="text-xs font-medium" fill="#45260C">0</text>
+                                        <text x="100" y="15" textAnchor="middle" className="text-xs font-medium" fill="#45260C">50</text>
+                                        <text x="172" y="125" textAnchor="middle" className="text-xs font-medium" fill="#45260C">100</text>
+                                    </svg>
+                                    
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="text-center mt-16">
+                                            <span className="text-5xl font-bold block" style={{ color: '#E68600' }}>
+                                                {result ? displayScore : 0}分
+                                            </span>
+                                            {result && (
+                                                <span className="text-sm font-medium mt-1 block" style={{ color: '#E68600' }}>
+                                                    {result.category}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 输入区域 */}
+                            <div className="mb-6">
+                                <label className="block text-lg font-semibold mb-3" style={{ color: '#45260C' }}>
+                                    什么事情让你烦恼？
+                                </label>
+                                
+                                {!result ? (
+                                    <>
+                                        <textarea
+                                            value={grievance}
+                                            onChange={(e) => setGrievance(e.target.value)}
+                                            placeholder="我室友把我留着的最后一片披萨吃了..."
+                                            className="w-full p-4 border-2 border-orange-200 rounded-lg focus:border-orange-500 focus:outline-none resize-none"
+                                            style={{ borderColor: 'rgba(230, 134, 0, 0.3)' }}
+                                            rows={4}
+                                        />
+                                        
+                                        <div className="mt-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                {exampleGrievances.map((example, index) => (
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => setGrievance(example.text)}
+                                                        className="px-3 py-1 text-sm border rounded-full transition-colors hover:bg-orange-50"
+                                                        style={{ 
+                                                            borderColor: '#E68600',
+                                                            color: '#45260C',
+                                                            backgroundColor: 'white'
+                                                        }}
+                                                    >
+                                                        {example.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        
+                                        {error && (
+                                            <div className="mt-3 flex items-center text-red-600">
+                                                <AlertCircle className="w-5 h-5 mr-2" />
+                                                <span>{error}</span>
+                                            </div>
+                                        )}
+
+                                        <button
+                                            onClick={analyzeGrievance}
+                                            disabled={loading}
+                                            className="mt-4 w-full py-4 rounded-lg font-bold text-white transition-all transform hover:scale-105"
+                                            style={{
+                                                backgroundColor: loading ? '#F5A854' : '#E68600',
+                                            }}
+                                        >
+                                            {loading ? '正在请求AI分析...' : '让AI分析我的小题大做程度！'}
+                                        </button>
+                                    </>
+                                ) : (
+                                    <div className="bg-gray-50 rounded-lg p-4">
+                                        <p className="italic" style={{ color: '#45260C' }}>"{grievance}"</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 结果区域 */}
+                            {result && (
+                                <div className="animate-fadeIn">
+                                    <div className="border-t border-gray-200 pt-6">
+                                        <div className="space-y-6">
+                                            <div>
+                                                <p className="text-lg font-semibold mb-3" style={{ color: '#45260C' }}>AI 分析结果</p>
+                                                <div className="bg-orange-50 rounded-lg p-4">
+                                                    <p style={{ color: '#45260C' }}>
+                                                        {result.judgment}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div>
+                                                <p className="text-lg font-semibold mb-3" style={{ color: '#45260C' }}>AI 建议</p>
+                                                <div className="bg-orange-100 rounded-lg p-4">
+                                                    <p style={{ color: '#45260C' }}>
+                                                        {result.advice}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                setGrievance('');
+                                                setResult(null);
+                                                setDisplayScore(0);
+                                                setError('');
+                                            }}
+                                            className="mt-6 w-full py-3 border-2 rounded-lg font-semibold transition-colors hover:bg-orange-50"
+                                            style={{ 
+                                                borderColor: '#E68600', 
+                                                color: '#E68600' 
+                                            }}
+                                        >
+                                            再试一个抱怨
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<PettinessMeter />, document.getElementById('root'));
+    </script>
+</body>
+</html>
